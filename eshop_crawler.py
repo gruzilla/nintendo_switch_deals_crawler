@@ -19,8 +19,7 @@ whishlist_src = os.environ.get("GAMES").split(",")
 
 endpoint = 'https://api.ec.nintendo.com/v1/price'
 
-if (re.search(",", receiver_email) != None):
-    receiver_email = receiver_email.split(",")
+receiver_email = receiver_email.split(",")
 
 def prep_game_name(_game_name):
     game_regex = r'(\s*(™|®| HD$|\.$|$))'
@@ -144,14 +143,17 @@ def send_message(text):
         server.ehlo() # Can be omitted
         server.login(sender_email, password)
 
-        message = MIMEMultipart("alternative")
-        message["Subject"] = "Nintendo Switch Deals Update"
-        message["From"] = sender_email
-        message["To"] = receiver_email
+        for receiver in receiver_email:
+            message = MIMEMultipart("alternative")
+            message["Subject"] = "Nintendo Switch Deals Update"
+            message["From"] = sender_email
+            message["To"] = receiver
 
-        message.attach(MIMEText(text, "plain"))
+            message.attach(MIMEText(text, "plain"))
 
-        return server.sendmail(sender_email, receiver_email, message.as_string())
+            res = server.sendmail(sender_email, receiver, message.as_string())
+
+        return res
     except Exception as e:
         # Print any error messages to stdout
         print(e)
