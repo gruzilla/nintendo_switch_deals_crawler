@@ -6,6 +6,8 @@ from nintendeals import noa, noe
 import pandas as pd
 import smtplib, ssl
 import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 smtp_server = os.environ.get("NOTIFICATION_SMTP_SERVER")
 port = 587  # For starttls
@@ -147,7 +149,7 @@ def send_message(text):
         message["From"] = sender_email
         message["To"] = receiver_email
 
-        message.attach(text, "plain")
+        message.attach(MIMEText(text, "plain"))
 
         return server.sendmail(sender_email, receiver_email, message.as_string())
     except Exception as e:
@@ -200,6 +202,9 @@ if __name__ == '__main__':
             'offer_start': discount_price_start,
             'offer_end': discount_price_end,
         })
+
+    if (len(offers) == 0):
+        exit()
 
     offers = pd.DataFrame(offers)
     offers['discount_amount'] = offers.regular_price - offers.discount_price
