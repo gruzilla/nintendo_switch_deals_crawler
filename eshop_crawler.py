@@ -4,44 +4,21 @@ import re
 from threading import Thread
 from nintendeals import noa, noe
 import pandas as pd
+import smtplib, ssl
+import os
 
-tg_token = '' # insert your telegram bot token here
+smtp_server = os.environ.get("NOTIFICATION_SMTP_SERVER")
+port = 587  # For starttls
+sender_email = os.environ.get("NOTIFICATION_SENDER")
+receiver_email = os.environ.get("NOTIFICATION_RECEIVER")
+password = os.environ.get("NOTIFICATION_SMTP_PASSWORD")
+
+whishlist_src = os.environ.get("GAMES").split(",")
 
 endpoint = 'https://api.ec.nintendo.com/v1/price'
 
-whishlist_src = [
-    'The Elder Scrolls V: Skyrim',
-    'ASTRAL CHAIN',
-    'Bayonetta',
-    'Bayonetta 2',
-    'Darksiders Genesis',
-    'Darksiders Warmastered Edition',
-    'Darksiders II Deathinitive Edition',
-    'Devil May Cry',
-    'Devil May Cry 2',
-    'Devil May Cry 3 Special Edition',
-    'Spyro™ Reignited Trilogy',
-    'Crash Bandicoot™ N. Sane Trilogy',
-    'The Binding of Isaac: Afterbirth+',
-    'Dead Cells',
-    'Hades',
-    'Cuphead',
-    'BDSM: Big Drunk Satanic Massacre',
-    'Hotline Miami Collection',
-    'Risk of Rain 2',
-    'Burnout™ Paradise Remastered',
-    'FAST RMX',
-    'Need for Speed™ Hot Pursuit Remastered',
-    'BLAZBLUE CENTRALFICTION Special Edition',
-    'NARUTO SHIPPUDEN™: Ultimate Ninja® STORM 4 ROAD TO BORUTO',
-    '1-2-Switch',
-    'ARMS',
-    'Duck Game',
-    'Mario Kart 8 Deluxe',
-    'Super Mario Odyssey',
-    'Super Mario Party',
-    'Marvel Ultimate Alliance 3: The Black Order',
-]
+if (re.search(",", receiver_email) != None):
+    receiver_email = receiver_email.split(",")
 
 def prep_game_name(_game_name):
     game_regex = r'(\s*(™|®| HD$|\.$|$))'
@@ -67,7 +44,7 @@ def get_prices(nsuids, country):
     }
 
     shops = [
-        {'country': 'RU', 'lang': 'ru'},
+        {'country': 'AT', 'lang': 'de'},
         {'country': 'US', 'lang': 'en'}
     ]
 
@@ -78,7 +55,6 @@ def get_prices(nsuids, country):
             return(response.json()['prices'])
 
     raise ValueError(f'Wrong country: "{country}"')
-
 
 def get_games(region):
     for game in region.list_switch_games():
@@ -130,23 +106,14 @@ def load_nsuids():
         with open('nsuids.pkl', 'wb') as f:
             pickle.dump(res, f)
 
-        res.sort_values(by='title').to_excel('nsuids.xlsx', index=False)
+        res.sort_values(by='title')
+        # res.sort_values(by='title').to_excel('nsuids.xlsx', index=False)
 
         for game in whishlist:
             if game.lower() not in res.title.str.lower().tolist():
                 raise Exception(f'Game not found: {game}')
 
     return res
-
-
-def get_currency_rate(currency_code):
-    request_url = f'https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode={currency_code}&json'
-    response = requests.get(request_url)
-    response.encoding = 'utf-8'
-    if response.status_code != 200:
-        raise ValueError(response.content)
-    return response.json()[0]['rate']
-
 
 def discounts_to_text(df):
     if df.shape[0] == 0:
@@ -155,22 +122,39 @@ def discounts_to_text(df):
     def _process(row):
         return (f"{row['title']}\n"
                 'Is on discount for '
-                f"{round(row['discount_price'],2)}₴ "
+                f"{round(row['discount_price'],2)} EUR "
                 f"(-{round(row['discount_pcn']*100)}%) "
                 f"({row['currency_code']})")
     return '\n\n'.join(df.apply(_process, axis=1))
 
 
-def send_message(text, **kwargs):
-    data = {'text': text, 'chat_id': '-1001300378552', }
-    data.update(kwargs)
+def send_message(text):
 
-    url = f'https://api.telegram.org/bot{tg_token}/sendMessage'
+    print(text)
+    # Create a secure SSL context
+    context = ssl.create_default_context()
 
-    response = requests.post(url, json=data)
-    response.raise_for_status()
+    # Try to log in to server and send email
+    try:
+        server = smtplib.SMTP(smtp_server,port)
+        server.ehlo() # Can be omitted
+        server.starttls(context=context) # Secure the connection
+        server.ehlo() # Can be omitted
+        server.login(sender_email, password)
 
-    return response.json()
+        message = MIMEMultipart("alternative")
+        message["Subject"] = "Nintendo Switch Deals Update"
+        message["From"] = sender_email
+        message["To"] = receiver_email
+
+        message.attach(text, "plain")
+
+        return server.sendmail(sender_email, receiver_email, message.as_string())
+    except Exception as e:
+        # Print any error messages to stdout
+        print(e)
+    finally:
+        server.quit() 
 
 
 if __name__ == '__main__':
@@ -184,8 +168,8 @@ if __name__ == '__main__':
 
     prices_US = get_prices(
         nsuids.loc[nsuids.nsuid_noa.notna(), 'nsuid_noa'].tolist(), 'US')
-    prices_RU = get_prices(
-        nsuids.loc[nsuids.nsuid_noe.notna(), 'nsuid_noe'].tolist(), 'RU')
+    prices_AT = get_prices(
+        nsuids.loc[nsuids.nsuid_noe.notna(), 'nsuid_noe'].tolist(), 'AT')
 
     nsuid_to_title = nsuids.melt(id_vars=['title'], value_vars=[
                                  'nsuid_noa', 'nsuid_noe'], value_name='nsuid')
@@ -197,7 +181,7 @@ if __name__ == '__main__':
 
     offers = []
 
-    for price in prices_RU+prices_US:
+    for price in prices_AT+prices_US:
         nsuid = price['title_id']
         title = nsuid_to_title[str(nsuid)]
         if price.get('discount_price') is None:
@@ -220,17 +204,6 @@ if __name__ == '__main__':
     offers = pd.DataFrame(offers)
     offers['discount_amount'] = offers.regular_price - offers.discount_price
     offers['discount_pcn'] = offers.discount_amount.div(offers.regular_price)
-
-    rates = {curr: get_currency_rate(
-        curr) for curr in offers.currency_code.unique().tolist()}
-    for currency, rate in rates.items():
-        offers.loc[offers.currency_code == currency, 'regular_price'] = \
-            offers.loc[offers.currency_code == currency, 'regular_price']*rate
-        offers.loc[offers.currency_code == currency, 'discount_price'] = \
-            offers.loc[offers.currency_code == currency, 'discount_price']*rate
-        offers.loc[offers.currency_code == currency, 'discount_amount'] = \
-            offers.loc[offers.currency_code ==
-                       currency, 'discount_amount']*rate
 
     try:
         notified_prices = pd.read_pickle('processed.pkl')
