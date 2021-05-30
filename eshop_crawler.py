@@ -45,8 +45,8 @@ def get_prices(nsuids, country):
     }
 
     shops = [
-        {'country': 'AT', 'lang': 'de'},
-        {'country': 'US', 'lang': 'en'}
+        {'country': 'AT', 'lang': 'de'}
+#        {'country': 'US', 'lang': 'en'}
     ]
 
     for shop in shops:
@@ -95,7 +95,8 @@ def get_nsuids():
 
 def load_nsuids():
     try:
-        with open('nsuids.pkl', 'rb') as f:
+        print('loading nsuid.pkl (rb)')
+        with open('/data/nsuids.pkl', 'rb') as f:
             res = pickle.load(f)
 
         for game in whishlist:
@@ -104,7 +105,8 @@ def load_nsuids():
     except:
         res = get_nsuids()
 
-        with open('nsuids.pkl', 'wb') as f:
+        print('dumping nsuid.pkl (wb)')
+        with open('/data/nsuids.pkl', 'wb') as f:
             pickle.dump(res, f)
 
         res.sort_values(by='title')
@@ -132,6 +134,7 @@ def discounts_to_text(df):
 def send_message(text):
 
     print(text)
+
     # Create a secure SSL context
     context = ssl.create_default_context()
 
@@ -158,7 +161,7 @@ def send_message(text):
         # Print any error messages to stdout
         print(e)
     finally:
-        server.quit() 
+        server.quit()
 
 
 if __name__ == '__main__':
@@ -170,8 +173,8 @@ if __name__ == '__main__':
         [game.lower() for game in whishlist])
     nsuids = nsuids[filter]
 
-    prices_US = get_prices(
-        nsuids.loc[nsuids.nsuid_noa.notna(), 'nsuid_noa'].tolist(), 'US')
+#    prices_US = get_prices(
+#        nsuids.loc[nsuids.nsuid_noa.notna(), 'nsuid_noa'].tolist(), 'US')
     prices_AT = get_prices(
         nsuids.loc[nsuids.nsuid_noe.notna(), 'nsuid_noe'].tolist(), 'AT')
 
@@ -185,7 +188,8 @@ if __name__ == '__main__':
 
     offers = []
 
-    for price in prices_AT+prices_US:
+    # +prices_US
+    for price in prices_AT:
         nsuid = price['title_id']
         title = nsuid_to_title[str(nsuid)]
         if price.get('discount_price') is None:
@@ -206,6 +210,7 @@ if __name__ == '__main__':
         })
 
     if (len(offers) == 0):
+        print('no offers at the moment.')
         exit()
 
     offers = pd.DataFrame(offers)
@@ -213,12 +218,14 @@ if __name__ == '__main__':
     offers['discount_pcn'] = offers.discount_amount.div(offers.regular_price)
 
     try:
-        notified_prices = pd.read_pickle('processed.pkl')
+        print('loading processed.pkl (read)')
+        notified_prices = pd.read_pickle('/data/processed.pkl')
     except:
         notified_prices = None
 
     if notified_prices is None:
-        offers.to_pickle('processed.pkl')
+        print('writing to processed.pkl (to)')
+        offers.to_pickle('/data/processed.pkl')
     else:
         df_merge = offers.reset_index().merge(
             notified_prices.reset_index(),
@@ -241,7 +248,8 @@ if __name__ == '__main__':
             offers.loc[new, :]
         ])
 
-        notified_prices.to_pickle('processed.pkl')
+        print('writing to processed.pkl (to)')
+        notified_prices.to_pickle('/data/processed.pkl')
 
     to_notify = offers.sort_values(by=['discount_price'])\
         .drop_duplicates(subset='title', keep='first')
@@ -249,3 +257,5 @@ if __name__ == '__main__':
     message = discounts_to_text(to_notify)
     if message is not None:
         resp = send_message(message)
+    else:
+        print('no message to send')
